@@ -11,11 +11,11 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import pandas as pd # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
-from .pylmm.test_data import generate_data # analysis:ignore
+from .test_data import generate_data # analysis:ignore
 from ..utilities.random_corr import vine_corr # analysis:ignore
-from ..linalg_operations import invech, vech, _check_shape # analysis:ignore
-from pyglm.families import Binomial # analysis:ignore
-from pylmm.links import LogitLink # analysis:ignore
+from ..utilities.linalg_operations import invech, vech, _check_shape # analysis:ignore
+from ..pylmm.families import Binomial # analysis:ignore
+from ..pylmm.links import LogitLink # analysis:ignore
 
 formula = "y~x1+x2+(1|id1)"
 model_dict = {}

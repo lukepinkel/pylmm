@@ -11,7 +11,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import scipy.sparse as sps
-from utilities.optimizer_utils import process_optimizer_kwargs
+from ..utilities.optimizer_utils import process_optimizer_kwargs
 from sksparse.cholmod import cholesky# analysis:ignore
 
 from ..utilities.linalg_operations import (_check_np,
