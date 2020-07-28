@@ -136,7 +136,12 @@ class WLME:
         if sparse_chol:
             L = scholesky(M.tocsc(), ordering_method='natural').A
         else:
+            #print(theta)
+            #Off diagonals can become > diagonals in binomial models
+            #Maybe switch to cholesky parameterization to avoid this problem
+            #or add constraints st G_{ij}<minimum(G_{ii}, G_{jj})
             L = np.linalg.cholesky(M.A)
+            
         ytPy = np.diag(L)[-1]**2
         logdetC = np.sum(2*np.log(np.diag(L))[:-1])
         ll = logdetC+logdetG+logdetR+ytPy
