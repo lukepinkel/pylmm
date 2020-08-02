@@ -14,6 +14,7 @@ from .lmm_chol3 import LME3, make_theta
 from ..utilities.linalg_operations import vech, _check_shape
 from sksparse.cholmod import cholesky
 from ..utilities.trnorm import trnorm
+from ..utilities.wishart import r_invwishart, r_invgamma
     
 def log1p(x):
     return np.log(1+x)
@@ -76,6 +77,26 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
 
 
 
+def sample_gcov2(theta, u, wsinfo, indices, key, priors):
+    u_i = u[indices['u'][key]]
+    U_i = u_i.reshape(-1, wsinfo[key]['k'], order='C')
+    Sg_i =  U_i.T.dot(U_i)
+    Gs = r_invwishart(wsinfo[key]['nu']+priors[key]['n'], 
+                             Sg_i+priors[key]['V'])
+    theta[indices['theta'][key]] = vech(Gs)
+    return theta
+
+def sample_rcov2(theta, y, yhat, wsinfo, priors):
+    resid = y - yhat
+    sse = resid.T.dot(resid)
+    nu = wsinfo['r']['nu'] 
+    ss = r_invgamma((nu+priors['R']['n']), 
+                            scale=(sse+priors['R']['V']))
+    theta[-1] = ss 
+    return theta
+
+
+
 
 class MixedMCMC(LME3):
     
@@ -102,6 +123,7 @@ class MixedMCMC(LME3):
         self.wsinfo['r'] = dict(nu=self.n_ob-2)
         self.offset = np.zeros(self.n_lc)
         self.location = np.zeros(self.n_re+self.n_fe)
+        self.zero_mat = sp.sparse.eye(self.n_fe)*0.0
     
     def sample_location(self, theta, x1, x2, y):
         s, s2 =  np.sqrt(theta[-1]), theta[-1]
@@ -109,6 +131,22 @@ class MixedMCMC(LME3):
         M = WtR.dot(self.W)
         Ginv = self.update_gmat(theta, inverse=True).copy()
         M[-self.n_re:, -self.n_re:] += Ginv
+        chol_fac = cholesky(Ginv, ordering_method='natural')
+        a_star = chol_fac.solve_Lt(x1, use_LDLt_decomposition=False)
+        y_z = y - (self.Z.dot(a_star) + x2 * s)
+        ofs = self.offset.copy()
+        ofs[-self.n_re:] = a_star
+        location = ofs + sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
+        return location
+    
+    def sample_location2(self, theta, x1, x2, y):
+        s, s2 =  np.sqrt(theta[-1]), theta[-1]
+        WtR = self.W.copy().T / s2
+        M = WtR.dot(self.W)
+        Ginv = self.update_gmat(theta, inverse=True).copy()
+        #M[-self.n_re:, -self.n_re:] += Ginv
+        Omega = sp.sparse.block_diag([self.zero_mat, Ginv])
+        M+=Omega
         chol_fac = cholesky(Ginv, ordering_method='natural')
         a_star = chol_fac.solve_Lt(x1, use_LDLt_decomposition=False)
         y_z = y - (self.Z.dot(a_star) + x2 * s)
@@ -135,6 +173,19 @@ class MixedMCMC(LME3):
             theta = sample_gcov(theta.copy(), u, self.wsinfo, self.indices,
                                 key, self.priors)
         theta = sample_rcov(theta, z, pred, self.wsinfo, self.priors)
+        return theta
+    
+    def sample_theta2(self, theta, u, z, pred):
+        for key in self.levels:
+            theta = sample_gcov2(theta.copy(), u, self.wsinfo, self.indices,
+                                key, self.priors)
+        theta = sample_rcov2(theta, z, pred, self.wsinfo, self.priors)
+        return theta
+    
+    def sample_theta3(self, theta, u, z, pred):
+        for key in self.levels:
+            theta = sample_gcov2(theta.copy(), u, self.wsinfo, self.indices,
+                                key, self.priors)
         return theta
     
     def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, store_z=False):
@@ -261,9 +312,93 @@ class MixedMCMC(LME3):
         
         progress_bar.close()
         return samples
+    
+    def sample_slice_gibbs3(self, n_samples):
+        normdist = sp.stats.norm(0.0, 1.0).rvs
+
+        n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
+        n_smp = n_samples
+        samples = np.zeros((n_smp, n_pr))
+        
+        x_astr, x_ranf = normdist((n_smp, n_ob)), normdist((n_smp, n_re))
+        rexpon = sp.stats.expon(scale=1).rvs((n_smp, n_ob))
+        
+        location, pred = self.location.copy(), self.W.dot(self.location)
+        theta, z = self.t_init.copy(), sp.stats.norm(0, 1).rvs(n_ob)
+
+        ix0, ix1 = self.y==0, self.y==1
+        jv0, jv1 = np.ones(len(ix0)), np.ones(len(ix1))
+        v = np.zeros_like(z).astype(float)
+        progress_bar = tqdm.tqdm(range(n_smp))
+        for i in progress_bar:
+            #z, accept = model.mh_lvar(pred, np.sqrt(theta[-1]), z, x_step[i], u_accp[i], propC)
+            v[ix1] = z[ix1] - log1p(np.exp(z[ix1]))
+            v[ix1]-= rexpon[i][ix1]
+            v[ix1] = v[ix1] - log1p(-np.exp(v[ix1]))
+            
+            v[ix0] = -log1p(np.exp(z[ix0]))
+            v[ix0]-= rexpon[i][ix0]
+            v[ix0] = log1p(-np.exp(v[ix0])) - v[ix0]
+            s = np.sqrt(theta[-1])
+            z[ix1] = trnorm(mu=pred[ix1], sd=s*jv1, lb=v[ix1], ub=20*jv1)
+            z[ix0] = trnorm(mu=pred[ix0], sd=s*jv0, lb=-20*jv0, ub=v[ix0])
+             
+            location = self.sample_location2(theta, x_ranf[i], x_astr[i], z)
+            pred = self.W.dot(location)
+            u = location[-self.n_re:]
+            theta  = self.sample_theta2(theta, u, z, pred)
+            
+            samples[i, self.n_fe:] = theta.copy()
+            samples[i, :self.n_fe] = location[:self.n_fe]
+        
+        progress_bar.close()
+        return samples
+   
+                
+    def sample_slice_gibbs4(self, n_samples):
+        normdist = sp.stats.norm(0.0, 1.0).rvs
+
+        n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
+        n_smp = n_samples
+        samples = np.zeros((n_smp, n_pr))
+        
+        x_astr, x_ranf = normdist((n_smp, n_ob)), normdist((n_smp, n_re))
+        rexpon = sp.stats.expon(scale=1).rvs((n_smp, n_ob))
+        
+        location, pred = self.location.copy(), self.W.dot(self.location)
+        theta, z = self.t_init.copy(), sp.stats.norm(0, 1).rvs(n_ob)
+
+        ix0, ix1 = self.y==0, self.y==1
+        jv0, jv1 = np.ones(len(ix0)), np.ones(len(ix1))
+        v = np.zeros_like(z).astype(float)
+        progress_bar = tqdm.tqdm(range(n_smp))
+        for i in progress_bar:
+            #z, accept = model.mh_lvar(pred, np.sqrt(theta[-1]), z, x_step[i], u_accp[i], propC)
+            v[ix1] = z[ix1] - log1p(np.exp(z[ix1]))
+            v[ix1]-= rexpon[i][ix1]
+            v[ix1] = v[ix1] - log1p(-np.exp(v[ix1]))
+            
+            v[ix0] = -log1p(np.exp(z[ix0]))
+            v[ix0]-= rexpon[i][ix0]
+            v[ix0] = log1p(-np.exp(v[ix0])) - v[ix0]
+            s = np.sqrt(theta[-1])
+            z[ix1] = trnorm(mu=pred[ix1], sd=s*jv1, lb=v[ix1], ub=20*jv1)
+            z[ix0] = trnorm(mu=pred[ix0], sd=s*jv0, lb=-20*jv0, ub=v[ix0])
+             
+            location = self.sample_location2(theta, x_ranf[i], x_astr[i], z)
+            pred = self.W.dot(location)
+            u = location[-self.n_re:]
+            theta  = self.sample_theta3(theta, u, z, pred)
+            
+            samples[i, self.n_fe:] = theta.copy()
+            samples[i, :self.n_fe] = location[:self.n_fe]
+        
+        progress_bar.close()
+        return samples
+   
                 
                 
-                
+             
                 
         
         
