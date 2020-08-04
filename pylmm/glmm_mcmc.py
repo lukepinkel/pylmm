@@ -444,9 +444,9 @@ class MixedMCMC(LME3):
         v[self.ix0] = log1p(-np.exp(v[self.ix0])) - v[self.ix0]
         s = np.sqrt(theta[-1])
         z[self.ix1] = trnorm(mu=pred[self.ix1], sd=s*self.jv1, 
-                             lb=v[self.ix1], ub=20*self.jv1)
+                             lb=v[self.ix1], ub=40*self.jv1)
         z[self.ix0] = trnorm(mu=pred[self.ix0], sd=s*self.jv0, 
-                             lb=-20*self.jv0, ub=v[self.ix0])
+                             lb=-40*self.jv0, ub=v[self.ix0])
         return z
    
             
