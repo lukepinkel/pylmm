@@ -124,6 +124,8 @@ class MixedMCMC(LME3):
         self.offset = np.zeros(self.n_lc)
         self.location = np.zeros(self.n_re+self.n_fe)
         self.zero_mat = sp.sparse.eye(self.n_fe)*0.0
+        self.ix0, self.ix1 = self.y==0, self.y==1
+        self.jv0, self.jv1 = np.ones(len(self.ix0)), np.ones(len(self.ix1))
     
     def sample_location(self, theta, x1, x2, y):
         s, s2 =  np.sqrt(theta[-1]), theta[-1]
@@ -395,8 +397,59 @@ class MixedMCMC(LME3):
         
         progress_bar.close()
         return samples
+    
+    def sample_slice_gibbs5(self, n_samples, save_pred=False, save_u=False):
+        normdist = sp.stats.norm(0.0, 1.0).rvs
+
+        n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
+        n_smp = n_samples
+        samples = np.zeros((n_smp, n_pr))
+        
+        x_astr, x_ranf = normdist((n_smp, n_ob)), normdist((n_smp, n_re))
+        rexpon = sp.stats.expon(scale=1).rvs((n_smp, n_ob))
+        
+        location, pred = self.location.copy(), self.W.dot(self.location)
+        theta, z = self.t_init.copy(), sp.stats.norm(0, 1).rvs(n_ob)
+        secondary_samples = {}
+        if save_pred:
+            secondary_samples['pred'] = np.zeros((n_smp, n_ob))
+        if save_u:
+            secondary_samples['u'] = np.zeros((n_smp, n_re))
+        v = np.zeros_like(z).astype(float)
+        progress_bar = tqdm.tqdm(range(n_smp))
+        for i in progress_bar:
+            #P(z|location, theta)
+            z = self.slice_sample_lvar(rexpon[i], v, z, theta, pred)
+            #P(location|z, theta)
+            location = self.sample_location2(theta, x_ranf[i], x_astr[i], z)
+            pred, u = self.W.dot(location), location[-self.n_re:]
+            #P(theta|z, location)
+            theta  = self.sample_theta3(theta, u, z, pred)
+            samples[i, self.n_fe:] = theta.copy()
+            samples[i, :self.n_fe] = location[:self.n_fe]
+            if save_pred:
+                secondary_samples['pred'][i] = pred
+            if save_u:
+                secondary_samples['u'][i] = u
+        progress_bar.close()
+        return samples, secondary_samples
+    
+    def slice_sample_lvar(self, rexpon, v, z, theta, pred):
+        v[self.ix1] = z[self.ix1] - log1p(np.exp(z[self.ix1]))
+        v[self.ix1]-= rexpon[self.ix1]
+        v[self.ix1] = v[self.ix1] - log1p(-np.exp(v[self.ix1]))
+        
+        v[self.ix0] = -log1p(np.exp(z[self.ix0]))
+        v[self.ix0]-= rexpon[self.ix0]
+        v[self.ix0] = log1p(-np.exp(v[self.ix0])) - v[self.ix0]
+        s = np.sqrt(theta[-1])
+        z[self.ix1] = trnorm(mu=pred[self.ix1], sd=s*self.jv1, 
+                             lb=v[self.ix1], ub=20*self.jv1)
+        z[self.ix0] = trnorm(mu=pred[self.ix0], sd=s*self.jv0, 
+                             lb=-20*self.jv0, ub=v[self.ix0])
+        return z
    
-                
+            
                 
              
                 
