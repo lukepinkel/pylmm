@@ -296,6 +296,23 @@ class LMEC:
         return H
     
     def update_chol(self, theta, inverse=False):
+        """
+        Parameters
+        ----------
+        theta: array_like
+            array containing the lower triangular components of the cholesky
+            for each random effect covariance
+            
+        inverse: bool
+        
+        Returns
+        -------
+        L_dict: dict of array_like
+            Dictionary whose keys and values correspond to level names
+            and the corresponding cholesky of the level's random effects 
+            covariance
+            
+        """
         L_dict = {}
         for key in self.levels:
             theta_i = theta[self.indices['theta'][key]]
@@ -304,6 +321,32 @@ class LMEC:
         return L_dict
     
     def dg_dchol(self, L_dict):
+        """
+        
+        Parameters
+        ----------
+        
+        L_dict: dict of array_like
+            Dictionary whose keys and values correspond to level names
+            and the corresponding cholesky of the level's random effects 
+            covariance
+        
+        
+        Returns
+        -------
+        
+        Jf: dict of array_like
+            For each level contains the derivative of the cholesky parameters
+            with respect to the covariance
+        
+        Notes
+        -----
+        
+        Function evaluates the derivative of the cholesky parameterization 
+        with respect to the lower triangular components of the covariance
+        
+        """
+        
         Jf = {}
         for key in self.levels:
             L = L_dict[key]
@@ -314,21 +357,75 @@ class LMEC:
         return Jf
     
     def loglike_c(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        loglike: scalar
+            Log likelihood of the model
+        """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
         return self.loglike(theta)
     
     def gradient_c(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the covariance
+            parameterization
+            
+        """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
         return self.gradient(theta)
     
     def hessian_c(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        hessian: array_like
+            The hessian of the log likelihood with respect to the covariance
+            parameterization
+            
+        """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
         return self.hessian(theta)
     
     def gradient_chol(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the cholesky
+            parameterization
+            
+        """
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
         Jg = self.gradient_c(theta_chol)
@@ -338,6 +435,20 @@ class LMEC:
         return Jg.dot(Jf)
     
     def hessian_chol(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        hessian: array_like
+            The hessian of the log likelihood with respect to the cholesky
+            parameterization
+            
+        """
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
         Hq = self.hessian_c(theta_chol)
