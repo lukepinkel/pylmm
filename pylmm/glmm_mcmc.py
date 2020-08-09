@@ -59,7 +59,7 @@ def sample_gcov(theta, u, wsinfo, indices, key, priors):
     U_i = u_i.reshape(-1, wsinfo[key]['k'], order='C')
     Sg_i =  U_i.T.dot(U_i)
     Gs = r_invwishart(wsinfo[key]['nu']+priors[key]['n'], 
-                             Sg_i+priors[key]['V']).rvs()
+                             Sg_i+priors[key]['V'])
     theta[indices['theta'][key]] = vech(Gs)
     return theta
 
@@ -68,7 +68,7 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
     sse = resid.T.dot(resid)
     nu = wsinfo['r']['nu'] 
     ss =r_invgamma((nu+priors['R']['n']), 
-                            scale=(sse+priors['R']['V'])).rvs()  
+                            scale=(sse+priors['R']['V']))
     theta[-1] = ss 
     return theta
 

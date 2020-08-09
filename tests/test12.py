@@ -53,7 +53,7 @@ samples_p = np.zeros((n_chains, n_samples, model.n_ob))
 
 model.t_init[-1] = 20
 for i in range(n_chains):
-    samples[i], scnd = model.sample_slice_gibbs5(n_samples, save_pred=True, save_u=True)
+    samples[i], scnd = model.sample_slice_gibbs(n_samples, save_pred=True, save_u=True)
     samples_p[i] = scnd['pred']
     samples_u[i] = scnd['u']
     
