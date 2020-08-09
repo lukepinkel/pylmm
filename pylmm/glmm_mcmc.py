@@ -10,7 +10,7 @@ import numpy as np
 import scipy as sp
 import scipy.stats
 import pandas as pd # analysis:ignore
-from .lmm_chol3 import LME3, make_theta
+from .lmm_chol import LMEC, make_theta
 from ..utilities.linalg_operations import vech, _check_shape
 from sksparse.cholmod import cholesky
 from ..utilities.trnorm import trnorm
@@ -76,7 +76,7 @@ def sample_rcov(theta, y, yhat, wsinfo, priors):
 
 
 
-class MixedMCMC(LME3):
+class MixedMCMC(LMEC):
     
     def __init__(self, formula, data, priors=None):
         super().__init__(formula, data) 

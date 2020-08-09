@@ -11,7 +11,7 @@ import tqdm# analysis:ignore
 import numpy as np # analysis:ignore
 import pandas as pd # analysis:ignore
 import scipy as sp # analysis:ignore
-from ..pylmm.lmm import LME, LME2 # analysis:ignore
+from ..pylmm.lmm import LME # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
 from .test_data import generate_data # analysis:ignore
 from ..utilities.random_corr import vine_corr # analysis:ignore
@@ -38,7 +38,7 @@ model_dict['n_obs'] = 1_000
 
 df, _ = generate_data(formula, model_dict, r=0.6**0.5)
 
-model = LME2(formula, df)
+model = LME(formula, df)
 model._fit({'method': 'trust-constr',
           'options': {'gtol': 1e-16, 'xtol': 1e-16, 'verbose': 3}})
 
@@ -52,7 +52,7 @@ params = np.zeros((5000, 5))
 
 
 for i in tqdm.tqdm(range(1000, 5000), mininterval=2, smoothing=0.01):
-    model_i = LME2(formula, df.iloc[np.concatenate(resampled_indices(groups))])
+    model_i = LME(formula, df.iloc[np.concatenate(resampled_indices(groups))])
     opt, theta = model_i._optimize_theta(opt_kws)
     beta, XtWX_inv, _, _, _, _, _, _ = model_i._compute_effects(theta)
     params[i] = np.concatenate([beta, theta])

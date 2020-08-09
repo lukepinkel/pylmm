@@ -180,7 +180,7 @@ def get_jacmats2(Zs, dims, indices, g_indices, theta):
       
     
 
-class LME3:
+class LMEC:
     
     def __init__(self, formula, data, weights=None):
       
@@ -415,7 +415,7 @@ class LME3:
 
  
 
-class WLME3:
+class WLMEC:
     
     def __init__(self, formula, data, weights=None, fix_error=False):
         if weights is None:
@@ -672,7 +672,7 @@ class WLME3:
 
     
     
-class GLMMC(WLME3):
+class GLMMC(WLMEC):
     '''
     Currently an ineffecient implementation of a GLMM, mostly done 
     for fun.  A variety of implementations for GLMMs have been proposed in the
@@ -688,7 +688,7 @@ class GLMMC(WLME3):
         if isinstance(fam, ExponentialFamily) is False:
             fam = fam()
         self.f = fam
-        self.mod = WLME3(formula, data, weights=None)        
+        self.mod = WLMEC(formula, data, weights=None)        
         self.theta_init = self.mod.theta.copy()
         self.mod._fit()
         self.y = self.mod.y
@@ -814,7 +814,7 @@ class GLMMC(WLME3):
 """       
 from pystats.utilities.random_corr import vine_corr
 from pystats.tests.test_data import generate_data
-from pylmm.pylmm.lmm import LME2
+from pylmm.pylmm.lmm import LME
 from pylmm.pylmm.glmm import WLME, GLMM
 
 
@@ -842,7 +842,7 @@ data, formula = generate_data(formula, model_dict, r=0.6**0.5)
 
 
 
-model_original = LME2(formula, data)
+model_original = LME(formula, data)
 model_cholesky = LME3(formula, data)
 model_original._fit()
 model_cholesky._fit(opt_kws=dict(verbose=3))

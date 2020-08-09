@@ -8,7 +8,7 @@ Created on Sat May 16 23:05:03 2020
 import timeit # analysis:ignore
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
-from ..pylmm.lmm import LME2 # analysis:ignore
+from ..pylmm.lmm import LME # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
 from .test_data import generate_data # analysis:ignore
 from ..utilities.random_corr import vine_corr # analysis:ignore
@@ -34,7 +34,7 @@ model_dict['n_obs'] = 4000
 df1, formula1 = generate_data(formula, model_dict, r=0.6**0.5)
 
 
-model1 = LME2(formula1, df1)
+model1 = LME(formula1, df1)
 model1._fit()
 
 g = model1.gradient(model1.theta)
@@ -53,7 +53,7 @@ model_dict['beta'] = np.array([3.0, 2, -2])
 model_dict['n_obs'] = 4000
 
 df2, formula2 = generate_data(formula, model_dict, r=0.6**0.5)
-model2 = LME2(formula2, df2)
+model2 = LME(formula2, df2)
 
 model2._fit()
 
@@ -71,7 +71,7 @@ model_dict['n_obs'] = 10_000
 
 df3, formula3 = generate_data(formula, model_dict, r=0.6**0.5)
 
-model3 = LME2(formula3, df3)
+model3 = LME(formula3, df3)
 model3._fit()
 
 

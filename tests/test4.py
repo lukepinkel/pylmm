@@ -11,7 +11,7 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import seaborn as sns # analysis:ignore
 import matplotlib as mpl# analysis:ignore
-from ..pylmm.lmm import LME2 # analysis:ignore
+from ..pylmm.lmm import LME # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
 import matplotlib.pyplot as plt# analysis:ignore
 from sksparse.cholmod import cholesky # analysis:ignore
@@ -39,7 +39,7 @@ model_dict['n_obs'] = 16000
 df1, formula1 = generate_data(formula, model_dict, r=0.6**0.5)
 
 
-model1 = LME2(formula1, df1)
+model1 = LME(formula1, df1)
 model1.loglike(model1.theta)
 model1.gradient(model1.theta)
 

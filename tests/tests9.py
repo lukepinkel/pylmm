@@ -9,7 +9,7 @@ import re
 import numpy as np
 import scipy as sp
 import scipy.stats
-from ..pylmm.lmm_chol3 import LME3
+from ..pylmm.lmm_chol import LMEC
 from ..utilities.linalg_operations import invech, vech
 from ..utilities.random_corr import vine_corr
 from sksparse.cholmod import cholesky
@@ -99,12 +99,12 @@ data, formula, u, eta = generate_data(formula, model_dict, r=0.9**0.5)
 
 u_true = u.copy()
 
-model = LME3(formula, data)
+model = LMEC(formula, data)
 
 model._fit(opt_kws=dict(verbose=3), use_hess=True)
 model._post_fit()
 
-theta = LME3(formula, data).theta.copy()
+theta = LMEC(formula, data).theta.copy()
 
 
 XZ = model.XZ
@@ -116,7 +116,7 @@ for key, val in model.dims.items():
     u_indices[key] = np.arange(start, start+q)
     start+=q
 
-t_init = LME3(formula, data).theta.copy()
+t_init = LMEC(formula, data).theta.copy()
 V_priors = dict(id1=np.eye(2))
 beta_draws, theta_draws, ll_evals = [], [], []
 start_multiplier = [0.1, 0.25, 0.5, 1.0, 1.5, 2.0 ]

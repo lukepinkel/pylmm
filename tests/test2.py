@@ -11,7 +11,7 @@ import scipy as sp  # analysis:ignore
 import scipy.stats  # analysis:ignore
 import pandas as pd  # analysis:ignore
 from ..utilities.random_corr import vine_corr, onion_corr # analysis:ignore
-from ..pylmm.lmm import LME2 # analysis:ignore
+from ..pylmm.lmm import LME # analysis:ignore
 import seaborn as sns
 import matplotlib.pyplot as plt
 n_grp = 300
@@ -43,7 +43,7 @@ r2 = r**2
 v = np.sqrt((1-r2) / r2 * eta.var())
 df['y'] = sp.stats.norm(eta, v).rvs()
 
-mod = LME2("y~x+1+(1|id)", data=df)
+mod = LME("y~x+1+(1|id)", data=df)
 mod._fit(optimizer_kwargs=dict(options=dict(gtol=1e-16, xtol=1e-16, verbose=3)))
 print(mod.params)
 
