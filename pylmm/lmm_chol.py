@@ -502,7 +502,7 @@ class LMEC:
                                               options=opt_kws, bounds=self.bounds,
                                               method='trust-constr')
         theta_chol = optimizer.x
-        theta = inverse_transform_theta(theta_chol, self.dims, self.indices)
+        theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         
         beta, XtWX_inv, u, G, R, Rinv, V, Vinv = self._compute_effects(theta)
         params = np.concatenate([beta, theta])
@@ -510,6 +510,8 @@ class LMEC:
         self.Hinv_beta = XtWX_inv
         self.se_beta = np.sqrt(np.diag(XtWX_inv))
         self._G, self._R, self._Rinv, self._V, self._Vinv = G, R, Rinv, V, Vinv
+        self.optimizer = optimizer
+        self.theta_chol = theta_chol
         
     def _post_fit(self):
         Htheta = self.hessian(self.theta)
