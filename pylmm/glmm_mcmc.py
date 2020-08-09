@@ -115,7 +115,8 @@ class MixedMCMC(LME3):
         self.re_mu = np.zeros(self.n_re)
         self.n_params = len(self.t_init)+self.n_fe
         if priors is None:
-            priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob), id1=dict(V=np.eye(2)*0.001, n=4))
+            priors = dict(R=dict(V=0.500*self.n_ob, n=self.n_ob), #id1=dict(V=np.eye(2)*0.001, n=4)
+                          )
             for level in self.levels:
                 Vi = np.eye(self.dims[level]['n_vars'])*0.001
                 priors[level] = dict(V=Vi, n=4)
@@ -444,9 +445,9 @@ class MixedMCMC(LME3):
         v[self.ix0] = log1p(-np.exp(v[self.ix0])) - v[self.ix0]
         s = np.sqrt(theta[-1])
         z[self.ix1] = trnorm(mu=pred[self.ix1], sd=s*self.jv1, 
-                             lb=v[self.ix1], ub=40*self.jv1)
+                             lb=v[self.ix1], ub=200*self.jv1)
         z[self.ix0] = trnorm(mu=pred[self.ix0], sd=s*self.jv0, 
-                             lb=-40*self.jv0, ub=v[self.ix0])
+                             lb=-200*self.jv0, ub=v[self.ix0])
         return z
    
             
