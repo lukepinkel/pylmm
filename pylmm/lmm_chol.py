@@ -9,6 +9,7 @@ Created on Thu Jul 16 00:11:32 2020
 
 import re
 import patsy
+import pandas as pd
 import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
@@ -50,7 +51,7 @@ def construct_random_effects(groups, data, n_vars):
     Z = np.concatenate(Z, axis=1)
     return Z, dim_dict
 
-def construct_model_matrices(formula, data):
+def construct_model_matrices(formula, data, return_fe=False):
     fe_form, groups = parse_random_effects(formula)
     yvars, fe_form = re.split("[~]", fe_form)
     fe_form = re.sub("\+$", "", fe_form)
@@ -59,9 +60,13 @@ def construct_model_matrices(formula, data):
     n_vars = len(yvars)
     Z, dim_dict = construct_random_effects(groups, data, n_vars)
     X = patsy.dmatrix(fe_form, data=data, return_type='dataframe')
+    fe_vars = X.columns
     y = data[yvars]
     X, y = _check_np(X), _check_np(y)
-    return X, Z, y, dim_dict, list(dim_dict.keys())
+    if return_fe:
+        return X, Z, y, dim_dict, list(dim_dict.keys()), fe_vars
+    else:
+        return X, Z, y, dim_dict, list(dim_dict.keys())
 
 def make_theta(dims):
     theta, indices, index_start = [], {}, 0
@@ -185,7 +190,7 @@ class LMEC:
     def __init__(self, formula, data, weights=None):
       
         indices = {}
-        X, Z, y, dims, levels = construct_model_matrices(formula, data)
+        X, Z, y, dims, levels, fe_vars = construct_model_matrices(formula, data, return_fe=True)
         theta, theta_indices = make_theta(dims)
     
         indices['theta'] = theta_indices
@@ -200,7 +205,7 @@ class LMEC:
         C, m = sps.csc_matrix(XZ.T.dot(XZ)), sps.csc_matrix(np.vstack([Xty, Zty]))
         M = sps.bmat([[C, m], [m.T, yty]])
         M = M.tocsc()
-    
+        self.fe_vars = fe_vars
         self.X, self.Z, self.y, self.dims, self.levels = X, Z, y, dims, levels
         self.XZ, self.Xty, self.Zty, self.yty = XZ, Xty, Zty, yty
         self.C, self.m, self.M = C, m, M
@@ -525,7 +530,23 @@ class LMEC:
         if Z is None:
             Z = self.Z
         return X.dot(self.beta)+Z.dot(self.u)
-
+    
+    def fit(self, use_hess=False, opt_kws={}):
+        self._fit(use_hess, opt_kws)
+        self._post_fit()
+        param_names = list(self.fe_vars)
+        for level in self.levels:
+            for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
+                param_names.append(f"{level}:theta[{i}][{j}]")
+        param_names.append("error_cov")
+        self.param_names = param_names
+        res = np.vstack((self.params, self.se_params)).T
+        res = pd.DataFrame(res, index=param_names, columns=['estimate', 'SE'])
+        res['t'] = res['estimate'] / res['SE']
+        res['p'] = sp.stats.t(self.X.shape[0]-self.X.shape[1]).sf(np.abs(res['t']))
+        self.res = res
+        
+        
  
 
 class WLMEC:
