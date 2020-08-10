@@ -537,7 +537,7 @@ class LMEC:
         param_names = list(self.fe_vars)
         for level in self.levels:
             for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
-                param_names.append(f"{level}:theta[{i}][{j}]")
+                param_names.append(f"{level}:G[{i}][{j}]")
         param_names.append("error_cov")
         self.param_names = param_names
         res = np.vstack((self.params, self.se_params)).T
