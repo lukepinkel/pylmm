@@ -62,7 +62,16 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
         df[x] = np.kron(np.arange(n_grp), np.ones(n_per))
 
 
-    df[list(cont_vars)] = sp.stats.multivariate_normal(mu, vcov).rvs(n_obs)
+#    df[list(cont_vars)] = sp.stats.multivariate_normal(mu, vcov).rvs(n_obs)
+    if len(mu)>1:
+        xvals = multi_rand(vcov, n_obs) + mu
+    else:
+        xvals = np.random.normal(0, 1, size=n_obs)
+        xvals -= xvals.mean()
+        xvals /= xvals.std()
+        xvals *= np.sqrt(vcov)
+        xvals += mu
+    df[list(cont_vars)] = xvals
     X, Z, y, dims = construct_model_matrices(formula, data=df)
     U = []
     for x in re_groupings:
