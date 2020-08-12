@@ -15,6 +15,8 @@ from ..utilities.linalg_operations import vech, _check_shape
 from sksparse.cholmod import cholesky
 from ..utilities.trnorm import trnorm
 from ..utilities.wishart import r_invwishart, r_invgamma
+from ..utilities.poisson import poisson_logp
+
     
 def log1p(x):
     return np.log(1+x)
@@ -119,6 +121,18 @@ class MixedMCMC(LMEC):
         mndenom1, mndenom2 = np.exp(z)+1, np.exp(z_prop)+1
         densityl1 = (self.y*z) - np.log(mndenom1) 
         densityl2 = (self.y*z_prop) - np.log(mndenom2)
+        densityl1 += sp.stats.norm(pred, s).logpdf(z)
+        densityl2 += sp.stats.norm(pred, s).logpdf(z_prop)
+        density_diff = densityl2 - densityl1
+        accept = (density_diff>u_accept)
+        z[accept] = z_prop[accept]
+        return z, accept
+    
+    def mh_lvar_poisson(self, pred, s, z, x_step, u_accept, propC):
+        z_prop = x_step * propC + z
+        
+        densityl1 = poisson_logp(self.y, np.exp(z))
+        densityl2 = poisson_logp(self.y, np.exp(z_prop))
         densityl1 += sp.stats.norm(pred, s).logpdf(z)
         densityl2 += sp.stats.norm(pred, s).logpdf(z_prop)
         density_diff = densityl2 - densityl1
@@ -231,6 +245,39 @@ class MixedMCMC(LMEC):
                 secondary_samples['u'][i] = u
             if save_lvar:
                 secondary_samples['lvar'][i] = z
+        progress_bar.close()
+        return samples, secondary_samples
+    
+    def gibbs_normal(self, n_samples, save_pred=False, save_u=False, save_lvar=False,
+                     freeR=True):
+        normdist = sp.stats.norm(0.0, 1.0).rvs
+
+        n_pr, n_ob, n_re = self.n_params, self.n_ob, self.n_re
+        n_smp = n_samples
+        samples = np.zeros((n_smp, n_pr))
+        
+        x_astr, x_ranf = normdist((n_smp, n_ob)), normdist((n_smp, n_re))
+        y = self.y
+        location, pred = self.location.copy(), self.W.dot(self.location)
+        theta = self.t_init.copy()
+        secondary_samples = {}
+        if save_pred:
+            secondary_samples['pred'] = np.zeros((n_smp, n_ob))
+        if save_u:
+            secondary_samples['u'] = np.zeros((n_smp, n_re))
+        progress_bar = tqdm.tqdm(range(n_smp))
+        for i in progress_bar:
+            #P(location|y, theta)
+            location = self.sample_location(theta, x_ranf[i], x_astr[i], y)
+            pred, u = self.W.dot(location), location[-self.n_re:]
+            #P(theta|z, location)
+            theta  = self.sample_theta(theta, u, y, pred, freeR)
+            samples[i, self.n_fe:] = theta.copy()
+            samples[i, :self.n_fe] = location[:self.n_fe]
+            if save_pred:
+                secondary_samples['pred'][i] = pred
+            if save_u:
+                secondary_samples['u'][i] = u
         progress_bar.close()
         return samples, secondary_samples
     
