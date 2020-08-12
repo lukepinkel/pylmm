@@ -25,13 +25,6 @@ def rtnorm(mu, sd, lower, upper):
     b = (upper - mu) / sd
     return sp.stats.truncnorm(a=a, b=b, loc=mu, scale=sd).rvs()
     
-def logit(x):
-    u = np.exp(x)
-    return u / (1 + u)
-    
-def probit(x):
-    return sp.stats.norm(0, 1).cdf(x)
-
 
 def get_u_indices(dims): 
     u_indices = {}

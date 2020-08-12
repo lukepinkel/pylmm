@@ -10,7 +10,7 @@ import re
 import numpy as np
 import scipy as sp
 import scipy.stats
-from ...utilities.random_corr import multi_rand
+from ..utilities.random_corr import multi_rand
 import pandas as pd # analysis:ignore
 from ..pylmm.model_matrices import construct_model_matrices
 
@@ -70,7 +70,13 @@ def _generate_model(df, formula, re_groupings, cont_vars, model_dict, r=0.5):
         Gi = gcov[x]
         globals()["Gi"]=Gi
         globals()["n_grp"]=n_grp
-        Ui = multi_rand(Gi, *n_grp).flatten()
+        if len(Gi)==1:
+            Ui = np.random.normal(0, 1, size=n_grp)
+            Ui -= Ui.mean()
+            Ui /= Ui.std()
+            Ui *= np.sqrt(Gi[0])
+        else:
+            Ui = multi_rand(Gi, *n_grp).flatten()
         U.append(Ui)
     u = np.concatenate(U)
     eta = X.dot(beta)+Z.dot(u)
