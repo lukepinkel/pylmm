@@ -520,7 +520,7 @@ class LMEC:
         
     def _post_fit(self):
         Htheta = self.hessian(self.theta)
-        self.Hinv_theta = np.linalg.inv(Htheta)
+        self.Hinv_theta = np.linalg.inv(Htheta/2.0)
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
         self.se_params = np.concatenate([self.se_beta, self.se_theta])        
     

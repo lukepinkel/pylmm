@@ -284,7 +284,15 @@ class MixedMCMC(LMEC):
 
             
                 
-             
+
+
+def to_arviz_dict(samples, var_dict, burnin=0):
+    az_dict = {}
+    for key, val in var_dict.items():
+        az_dict[key] = samples[:, burnin:, val]
+    return az_dict    
+
+            
                 
         
         
