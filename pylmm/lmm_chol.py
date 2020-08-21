@@ -22,7 +22,7 @@ from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis
                             InverseGaussian, Poisson, NegativeBinomial)
 
 from ..utilities.output import get_param_table
-
+from sksparse.cholmod import cholesky
 
 def replace_duplicate_operators(match):
     return match.group()[-1:]
@@ -273,6 +273,36 @@ class LMEC:
         grad = _check_shape(np.array(grad))
         return grad
     
+    def gradient_me(self, theta):
+        Ginv = self.update_gmat(theta, inverse=True)
+        Rinv = self.R / theta[-1]
+        X, Z, y = self.X, self.Zs, self.y
+        W = Rinv.dot(Z)
+        Omega = cholesky(Z.T.dot(W) + Ginv).inv()
+        U = Rinv - W.dot(Omega).dot(W.T)
+        UX = Rinv.dot(X) - W.dot(Omega).dot(W.T.dot(X))
+        Uy = Rinv.dot(y) - W.dot(Omega).dot(W.T.dot(y))
+        self.jac_mats['error'] = [self.jac_mats['error'][0].tocsc()]
+        S = X.T.dot(UX)
+        Sinv = np.linalg.inv(S)
+        Py = Uy - UX.dot(np.linalg.inv(S).dot(UX.T.dot(y)))
+        UXS = UX.dot(Sinv)
+        grad = np.zeros_like(theta)
+        k=0
+        for key in (self.levels+['error']):
+             for dVdi in self.jac_mats[key]:
+                 grad[k] += -Py.T.dot(dVdi.dot(Py))[0][0]
+                 k+=1  
+        for i in range(y.shape[0]):
+            P_i = np.asarray(U[i] - UXS[i].dot(UX.T))
+            print(i)
+            k=0
+            for key in (self.levels+['error']):
+                for dVdi in self.jac_mats[key]:
+                    grad[k] = grad[k] + dVdi[:, i].T.dot(P_i[0])[0]
+                    k=k+1
+        return grad
+    
     def hessian(self, theta):
         Ginv = self.update_gmat(theta, inverse=True)
         Rinv = self.R / theta[-1]
@@ -397,6 +427,26 @@ class LMEC:
         theta[-1] = theta_chol[-1]
         return self.gradient(theta)
     
+        
+    def gradient_me_c(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the covariance
+            parameterization
+            
+        """
+        theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
+        theta[-1] = theta_chol[-1]
+        return self.gradient_me(theta)
+    
     def hessian_c(self, theta_chol):
         """
         Parameters
@@ -438,6 +488,31 @@ class LMEC:
         Jf = np.pad(Jf, [[0, 1]])
         Jf[-1, -1] = 1
         return Jg.dot(Jf)
+    
+        
+    def gradient_me_chol(self, theta_chol):
+        """
+        Parameters
+        ----------
+        
+        theta_chol: array_like
+            The cholesky parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the cholesky
+            parameterization
+            
+        """
+        L_dict = self.update_chol(theta_chol)
+        Jf_dict = self.dg_dchol(L_dict)
+        Jg = self.gradient_me_c(theta_chol)
+        Jf = sp.linalg.block_diag(*Jf_dict.values()) 
+        Jf = np.pad(Jf, [[0, 1]])
+        Jf[-1, -1] = 1
+        return Jg.dot(Jf)
+    
     
     def hessian_chol(self, theta_chol):
         """
@@ -517,6 +592,10 @@ class LMEC:
         self._G, self._R, self._Rinv, self._V, self._Vinv = G, R, Rinv, V, Vinv
         self.optimizer = optimizer
         self.theta_chol = theta_chol
+        self.llconst = (self.X.shape[0] - self.X.shape[1])*np.log(2*np.pi)
+        self.lltheta = self.optimizer.fun
+        self.ll = (self.llconst + self.lltheta)
+        self.llf = self.ll / -2.0
         
     def _post_fit(self):
         Htheta = self.hessian(self.theta)
