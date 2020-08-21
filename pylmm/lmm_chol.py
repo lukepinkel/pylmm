@@ -361,7 +361,7 @@ class LMEC:
         X, Z, y = self.X, self.Zs, self.y
         W = Rinv.dot(Z)
         Omega = cholesky((Z.T.dot(W) + Ginv).tocsc()).inv()
-        U = Rinv - W.dot(Omega).dot(W.T)
+#        U = Rinv - W.dot(Omega).dot(W.T)
         UX = Rinv.dot(X) - W.dot(Omega).dot(W.T.dot(X))
         Uy = Rinv.dot(y) - W.dot(Omega).dot(W.T.dot(y))
         self.jac_mats['error'] = [self.jac_mats['error'][0].tocsc()]
@@ -376,11 +376,13 @@ class LMEC:
                  grad[k] += -Py.T.dot(dVdi.dot(Py))[0][0]
                  k+=1  
         for i in range(y.shape[0]):
-            P_i = np.asarray(U[i] - UXS[i].dot(UX.T))
+#            P_i = np.asarray(U[i] - UXS[i].dot(UX.T))
+            P_i = np.asarray((Rinv.tocsc()[i].T - W.dot(Omega.dot(W[i].T))).A.T[0] - UXS[i].dot(UX.T))
             k=0
             for key in (self.levels+['error']):
                 for dVdi in self.jac_mats[key]:
-                    grad[k] = grad[k] + dVdi[:, i].T.dot(P_i[0])[0]
+#                    grad[k] = grad[k] + dVdi[:, i].T.dot(P_i[0])[0]
+                    grad[k] = grad[k] + dVdi[:, i].T.dot(P_i)[0]
                     k=k+1
         return grad
     
