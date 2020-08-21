@@ -228,11 +228,41 @@ class LMEC:
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta]
         
     def update_mme(self, Ginv, s):
+        """
+        Parameters
+        ----------
+        Ginv: sparse matrix
+             scipy sparse matrix with inverse covariance block diagonal
+            
+        s: scalar
+            error covariance
+        
+        Returns
+        -------
+        M: sparse matrix
+            updated mixed model matrix
+            
+        """
         M = self.M.copy()/s
         M[-Ginv.shape[0]-1:-1, -Ginv.shape[0]-1:-1] += Ginv
         return M
     
     def update_gmat(self, theta, inverse=False):
+        """
+        Parameters
+        ----------
+        theta: ndarray
+             covariance parameters on the original scale
+            
+        inverse: bool
+            whether or not to inverse G
+        
+        Returns
+        -------
+        G: sparse matrix
+            updated random effects covariance
+            
+        """
         G = self.G
         for key in self.levels:
             ng = self.dims[key]['n_groups']
@@ -245,6 +275,18 @@ class LMEC:
         return G
         
     def loglike(self, theta):
+        """
+        Parameters
+        ----------
+        
+        theta: array_like
+            The original parameterization of the model parameters
+        
+        Returns
+        -------
+        loglike: scalar
+            Log likelihood of the model
+        """
         Ginv = self.update_gmat(theta, inverse=True)
         M = self.update_mme(Ginv, theta[-1])
         logdetG = lndet_gmat(theta, self.dims, self.indices)
@@ -256,6 +298,26 @@ class LMEC:
         return ll
     
     def gradient(self, theta):
+        """
+        Parameters
+        ----------
+        theta: array_like
+            The original parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the covariance
+            parameterization
+        
+        Notes
+        -----
+        This function has a memory requirement proportional to O(n^2), as
+        a dense (n x n) matrix (P) needs to be formed.  For models with
+        n>10000, it is generally both faster and more feasible to use 
+        gradient_me
+            
+        """
         Ginv = self.update_gmat(theta, inverse=True)
         Rinv = self.R / theta[-1]
         Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
@@ -274,11 +336,31 @@ class LMEC:
         return grad
     
     def gradient_me(self, theta):
+        """
+        Parameters
+        ----------
+        theta: array_like
+            The original parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the covariance
+            parameterization
+        
+        Notes
+        -----
+        This function avoids forming the (n x n) matrix P, and instead takes
+        advantage of the fact that yP(dV)Py can be computed using mostly matrix
+        vector products, while tr(P(dV)) can be computed by accumulating
+        n vector-vector products where each component of P, P_i, can be formed
+        only when needed.
+        """
         Ginv = self.update_gmat(theta, inverse=True)
         Rinv = self.R / theta[-1]
         X, Z, y = self.X, self.Zs, self.y
         W = Rinv.dot(Z)
-        Omega = cholesky(Z.T.dot(W) + Ginv).inv()
+        Omega = cholesky((Z.T.dot(W) + Ginv).tocsc()).inv()
         U = Rinv - W.dot(Omega).dot(W.T)
         UX = Rinv.dot(X) - W.dot(Omega).dot(W.T.dot(X))
         Uy = Rinv.dot(y) - W.dot(Omega).dot(W.T.dot(y))
@@ -295,7 +377,6 @@ class LMEC:
                  k+=1  
         for i in range(y.shape[0]):
             P_i = np.asarray(U[i] - UXS[i].dot(UX.T))
-            print(i)
             k=0
             for key in (self.levels+['error']):
                 for dVdi in self.jac_mats[key]:
