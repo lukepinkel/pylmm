@@ -101,6 +101,33 @@ class MixedMCMC(LMEC):
         self.jv0, self.jv1 = np.ones(len(self.ix0)), np.ones(len(self.ix1))
     
     def sample_location(self, theta, x1, x2, y):
+        """
+
+        Parameters
+        ----------
+        theta: array_like
+            Vector of covariance parameters
+        
+        x1: array_like
+            Sample from a standard normal distribution 
+        
+        x2: array_like
+            Sample from a standard normal distribution 
+        
+        y: array_like
+            Dependent variable
+        
+        Returns
+        -------
+        location: array_like
+            Sample from P(beta, u|y, G, R)
+        
+        Notes
+        -----
+        
+        
+        
+        """
         s, s2 =  np.sqrt(theta[-1]), theta[-1]
         WtR = self.W.copy().T / s2
         M = WtR.dot(self.W)
@@ -115,7 +142,7 @@ class MixedMCMC(LMEC):
         location = ofs + sp.sparse.linalg.spsolve(M, WtR.dot(y_z))
         return location
     
-    def mh_lvar(self, pred, s, z, x_step, u_accept, propC):
+    def mh_lvar_binomial(self, pred, s, z, x_step, u_accept, propC):
         z_prop = x_step * propC + z
         
         mndenom1, mndenom2 = np.exp(z)+1, np.exp(z_prop)+1
@@ -163,7 +190,7 @@ class MixedMCMC(LMEC):
                              lb=-200*self.jv0, ub=v[self.ix0])
         return z
    
-    def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, store_z=False):
+    def sample_mh_gibbs(self, n_samples, propC=1.0, chain=0, store_z=False, freeR=True):
         param_samples = np.zeros((n_samples, self.n_params))
         acceptances = np.zeros((n_samples, self.n_ob))
         if store_z:
@@ -184,11 +211,11 @@ class MixedMCMC(LMEC):
         for i in progress_bar:
             s2 = theta[-1]
             s = np.sqrt(s2)
-            z, accept = self.mh_lvar(pred, s, z, x_step[i], u_accp[i], propC)
+            z, accept = self.mh_lvar_binomial(pred, s, z, x_step[i], u_accp[i], propC)
             location = self.sample_location(theta, x_ranf[i], x_astr[i], z)
             pred = self.W.dot(location)
             u = location[-self.n_re:]
-            theta  = self.sample_theta(theta, u, z, pred)
+            theta  = self.sample_theta(theta, u, z, pred, freeR)
             
             param_samples[i, self.n_fe:] = theta.copy()
             param_samples[i, :self.n_fe] = location[:self.n_fe]

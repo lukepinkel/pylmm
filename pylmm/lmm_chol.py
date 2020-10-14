@@ -14,8 +14,8 @@ import numpy as np # analysis:ignore
 import scipy as sp # analysis:ignore
 import scipy.sparse as sps # analysis:ignore
 from ..utilities.linalg_operations import (dummy, vech, invech, _check_np, 
-                                                 khatri_rao, sparse_woodbury_inversion,
-                                                 _check_shape)
+                                           khatri_rao, sparse_woodbury_inversion,
+                                           _check_shape, woodbury_inversion)
 from ..utilities.special_mats import lmat, nmat
 
 from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
@@ -226,6 +226,7 @@ class LMEC:
             self.iden_mats[key] = np.eye(p)
             self.d2g_dchol[key] = get_d2_chol(self.dims[key])
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta]
+        self.bounds_2 = [(1e-25, None) if x==1 else (None, None) for x in self.theta]
         
     def update_mme(self, Ginv, s):
         """
@@ -297,7 +298,7 @@ class LMEC:
         ll = logdetR + logdetC + logdetG + ytPy
         return ll
     
-    def gradient(self, theta):
+    def gradient2(self, theta, use_sw=True):
         """
         Parameters
         ----------
@@ -320,7 +321,10 @@ class LMEC:
         """
         Ginv = self.update_gmat(theta, inverse=True)
         Rinv = self.R / theta[-1]
-        Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
+        if use_sw:
+            Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
+        else:
+            Vinv = woodbury_inversion(self.Z, Cinv=Ginv.A, Ainv=Rinv.A)
         W = (Vinv.dot(self.X))
         XtW = W.T.dot(self.X)
         XtW_inv = np.linalg.inv(XtW)
@@ -334,6 +338,51 @@ class LMEC:
         grad = np.concatenate(grad)
         grad = _check_shape(np.array(grad))
         return grad
+    
+    def gradient(self, theta, use_sw=True):
+        """
+        Parameters
+        ----------
+        theta: array_like
+            The original parameterization of the components
+        
+        Returns
+        -------
+        gradient: array_like
+            The gradient of the log likelihood with respect to the covariance
+            parameterization
+        
+        Notes
+        -----
+        This function has a memory requirement proportional to O(n^2), as
+        a dense (n x n) matrix (P) needs to be formed.  For models with
+        n>10000, it is generally both faster and more feasible to use 
+        gradient_me
+            
+        """
+        G = self.update_gmat(theta, inverse=False)
+        R = self.R * theta[-1]
+        V = self.Zs.dot(G).dot(self.Zs.T) + R
+        chol_fac = cholesky(V)
+        Vinv = chol_fac.solve_A(sp.sparse.eye(V.shape[0], format='csc'))
+        
+        W = chol_fac.solve_A(self.X)
+        XtW = W.T.dot(self.X)
+        U = np.linalg.solve(XtW, W.T)
+        Py = chol_fac.solve_A(self.y) - W.dot(U.dot(self.y))
+        
+        grad = []
+        for key in (self.levels+['error']):
+            for dVdi in self.jac_mats[key]:
+                VdVdi = dVdi.dot(Vinv).diagonal().sum()
+                trPdV = VdVdi - np.einsum('ij,ji->', W,
+                                          sp.sparse.csc_matrix.dot(U, dVdi))
+                gi = trPdV - Py.T.dot(dVdi.dot(Py))
+                grad.append(gi)
+        grad = np.concatenate(grad)
+        grad = _check_shape(np.array(grad))
+        return grad
+    
     
     def gradient_me(self, theta):
         """
@@ -650,20 +699,31 @@ class LMEC:
         
         return beta, XtViX_inv, u, G, R, Rinv, V, Vinv
     
-    def _fit(self, use_hess=False, opt_kws={}):
-        default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
-        if use_hess:
-            hess = self.hessian_chol
+    def _fit(self, use_grad=True, use_hess=False, opt_kws={}):
+        
+        
+        if use_grad:
+            default_opt_kws = dict(verbose=0, gtol=1e-6, xtol=1e-6)
+            if use_hess:
+               hess = self.hessian_chol
+            else:
+                hess = None
+            for key, value in default_opt_kws.items():
+                if key not in opt_kws.keys():
+                    opt_kws[key] = value
+            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, 
+                                             jac=self.gradient_chol, hess=hess, 
+                                             options=opt_kws, bounds=self.bounds,
+                                             method='trust-constr')
         else:
-            hess = None
-        for key, value in default_opt_kws.items():
-            if key not in opt_kws.keys():
-                opt_kws[key] = value
-                
-        optimizer = sp.optimize.minimize(self.loglike_c, self.theta, 
-                                              jac=self.gradient_chol, hess=hess, 
-                                              options=opt_kws, bounds=self.bounds,
-                                              method='trust-constr')
+            default_opt_kws = dict(disp=0, gtol=1e-6)
+            for key, value in default_opt_kws.items():
+                if key not in opt_kws.keys():
+                    opt_kws[key] = value
+            optimizer = sp.optimize.minimize(self.loglike_c, self.theta, 
+                                             bounds=self.bounds_2, 
+                                             method='L-BFGS-B',
+                                             options=opt_kws)
         theta_chol = optimizer.x
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         
@@ -682,7 +742,7 @@ class LMEC:
         
     def _post_fit(self):
         Htheta = self.hessian(self.theta)
-        self.Hinv_theta = np.linalg.inv(Htheta/2.0)
+        self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
         self.se_params = np.concatenate([self.se_beta, self.se_theta])        
     
@@ -693,8 +753,8 @@ class LMEC:
             Z = self.Z
         return X.dot(self.beta)+Z.dot(self.u)
     
-    def fit(self, use_hess=False, opt_kws={}):
-        self._fit(use_hess, opt_kws)
+    def fit(self, use_grad=True, use_hess=False, opt_kws={}):
+        self._fit(use_grad, use_hess, opt_kws)
         self._post_fit()
         param_names = list(self.fe_vars)
         for level in self.levels:
@@ -955,7 +1015,7 @@ class WLMEC:
         
     def _post_fit(self):
         Htheta = self.hessian(self.theta)
-        self.Hinv_theta = np.linalg.inv(Htheta)
+        self.Hinv_theta = np.linalg.pinv(Htheta)
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
         self.se_params = np.concatenate([self.se_beta, self.se_theta])        
     
