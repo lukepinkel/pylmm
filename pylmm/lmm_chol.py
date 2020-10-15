@@ -365,10 +365,11 @@ class LMEC:
         V = self.Zs.dot(G).dot(self.Zs.T) + R
         chol_fac = cholesky(V)
         if use_sw:
+            Rinv = self.R / theta[-1]
             Ginv = self.update_gmat(theta, inverse=True)
-            RZ = R.dot(self.Zs)
+            RZ = Rinv.dot(self.Zs)
             Q = Ginv + self.Zs.T.dot(RZ)
-            Vinv = R - RZ.dot(cholesky(Q).inv()).dot(RZ.T)
+            Vinv = Rinv - RZ.dot(cholesky(Q).inv()).dot(RZ.T)
         else:
             Vinv = chol_fac.solve_A(sp.sparse.eye(V.shape[0], format='csc'))
         
