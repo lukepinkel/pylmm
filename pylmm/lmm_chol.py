@@ -17,7 +17,7 @@ from ..utilities.linalg_operations import (dummy, vech, invech, _check_np,
                                            khatri_rao, sparse_woodbury_inversion,
                                            _check_shape, woodbury_inversion)
 from ..utilities.special_mats import lmat, nmat
-
+from ..utilities.numerical_derivs import so_gc_cd
 from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                             InverseGaussian, Poisson, NegativeBinomial)
 
@@ -275,7 +275,7 @@ class LMEC:
             G.data[self.indices['g'][key]] = np.tile(theta_i, ng)
         return G
         
-    def loglike(self, theta):
+    def loglike(self, theta, use_sw=False):
         """
         Parameters
         ----------
@@ -298,7 +298,7 @@ class LMEC:
         ll = logdetR + logdetC + logdetG + ytPy
         return ll
     
-    def gradient2(self, theta, use_sw=True):
+    def gradient2(self, theta, use_sw=False):
         """
         Parameters
         ----------
@@ -339,7 +339,7 @@ class LMEC:
         grad = _check_shape(np.array(grad))
         return grad
     
-    def gradient(self, theta, use_sw=True):
+    def gradient(self, theta, use_sw=False):
         """
         Parameters
         ----------
@@ -364,8 +364,16 @@ class LMEC:
         R = self.R * theta[-1]
         V = self.Zs.dot(G).dot(self.Zs.T) + R
         chol_fac = cholesky(V)
-        Vinv = chol_fac.solve_A(sp.sparse.eye(V.shape[0], format='csc'))
+        if use_sw:
+            Ginv = self.update_gmat(theta, inverse=True)
+            RZ = R.dot(self.Zs)
+            Q = Ginv + self.Zs.T.dot(RZ)
+            Vinv = R - RZ.dot(cholesky(Q).inv()).dot(RZ.T)
+        else:
+            Vinv = chol_fac.solve_A(sp.sparse.eye(V.shape[0], format='csc'))
         
+        if Vinv.nnz / np.product(Vinv.shape) > 0.1:
+            Vinv = Vinv.A
         W = chol_fac.solve_A(self.X)
         XtW = W.T.dot(self.X)
         U = np.linalg.solve(XtW, W.T)
@@ -523,7 +531,7 @@ class LMEC:
             Jf[key] = E.dot(N.dot(np.kron(L, I))).dot(E.T)
         return Jf
     
-    def loglike_c(self, theta_chol):
+    def loglike_c(self, theta_chol, use_sw=False):
         """
         Parameters
         ----------
@@ -538,9 +546,9 @@ class LMEC:
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
-        return self.loglike(theta)
+        return self.loglike(theta, use_sw)
     
-    def gradient_c(self, theta_chol):
+    def gradient_c(self, theta_chol, use_sw=False):
         """
         Parameters
         ----------
@@ -557,7 +565,7 @@ class LMEC:
         """
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         theta[-1] = theta_chol[-1]
-        return self.gradient(theta)
+        return self.gradient(theta, use_sw)
     
         
     def gradient_me_c(self, theta_chol):
@@ -598,7 +606,7 @@ class LMEC:
         theta[-1] = theta_chol[-1]
         return self.hessian(theta)
     
-    def gradient_chol(self, theta_chol):
+    def gradient_chol(self, theta_chol, use_sw=False):
         """
         Parameters
         ----------
@@ -615,7 +623,7 @@ class LMEC:
         """
         L_dict = self.update_chol(theta_chol)
         Jf_dict = self.dg_dchol(L_dict)
-        Jg = self.gradient_c(theta_chol)
+        Jg = self.gradient_c(theta_chol, use_sw)
         Jf = sp.linalg.block_diag(*Jf_dict.values()) 
         Jf = np.pad(Jf, [[0, 1]])
         Jf[-1, -1] = 1
@@ -740,8 +748,11 @@ class LMEC:
         self.ll = (self.llconst + self.lltheta)
         self.llf = self.ll / -2.0
         
-    def _post_fit(self):
-        Htheta = self.hessian(self.theta)
+    def _post_fit(self, analytic_se=False):
+        if analytic_se:
+            Htheta = self.hessian(self.theta)
+        else:
+            Htheta = so_gc_cd(self.gradient, self.theta)
         self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
         self.se_params = np.concatenate([self.se_beta, self.se_theta])        
@@ -753,7 +764,7 @@ class LMEC:
             Z = self.Z
         return X.dot(self.beta)+Z.dot(self.u)
     
-    def fit(self, use_grad=True, use_hess=False, opt_kws={}):
+    def fit(self, use_grad=True, use_hess=False, analytic_se=False, opt_kws={}):
         self._fit(use_grad, use_hess, opt_kws)
         self._post_fit()
         param_names = list(self.fe_vars)
