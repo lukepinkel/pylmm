@@ -6,6 +6,7 @@ Created on Mon Jul 27 20:00:38 2020
 @author: lukepinkel
 """
 import tqdm
+import arviz as az
 import numpy as np
 import scipy as sp
 import scipy.stats
@@ -234,7 +235,7 @@ class MixedMCMC(LMEC):
         else:
             return param_samples, acceptances
         
-    def sample_slice_gibbs(self, n_samples, save_pred=False, save_u=False, save_lvar=False,
+    def sample_slice_gibbs(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
                            freeR=False):
         normdist = sp.stats.norm(0.0, 1.0).rvs
 
@@ -256,6 +257,7 @@ class MixedMCMC(LMEC):
             secondary_samples['lvar'] = np.zeros((n_smp, n_ob))
         v = np.zeros_like(z).astype(float)
         progress_bar = tqdm.tqdm(range(n_smp))
+        progress_bar.set_description(f"Chain {chain}")
         for i in progress_bar:
             #P(z|location, theta)
             z = self.slice_sample_lvar(rexpon[i], v, z, theta, pred)
@@ -275,7 +277,7 @@ class MixedMCMC(LMEC):
         progress_bar.close()
         return samples, secondary_samples
     
-    def gibbs_normal(self, n_samples, save_pred=False, save_u=False, save_lvar=False,
+    def gibbs_normal(self, n_samples, chain=0, save_pred=False, save_u=False, save_lvar=False,
                      freeR=True):
         normdist = sp.stats.norm(0.0, 1.0).rvs
 
@@ -293,6 +295,7 @@ class MixedMCMC(LMEC):
         if save_u:
             secondary_samples['u'] = np.zeros((n_smp, n_re))
         progress_bar = tqdm.tqdm(range(n_smp))
+        progress_bar.set_description(f"Chain {chain}")
         for i in progress_bar:
             #P(location|y, theta)
             location = self.sample_location(theta, x_ranf[i], x_astr[i], y)
@@ -308,9 +311,31 @@ class MixedMCMC(LMEC):
         progress_bar.close()
         return samples, secondary_samples
     
+    def fit(self, n_samples=5000, n_chains=8, burnin=1000, vnames=None, sample_kws={},
+            method='MH-Gibbs'):
+        samples = np.zeros((n_chains, n_samples, self.n_params))        
+        if vnames is None:
+            vnames =  {"$\\beta$":np.arange(self.n_fe), 
+                       "$\\theta$":np.arange(self.n_fe, self.n_params)}
+    
+        if method=='MH-Gibbs':
+            func = self.sample_mh_gibbs
+        elif method=='Normal-Gibbs':
+            func = self.gibbs_normal
+        elif method=='Slice-Gibbs':
+            func = self.sample_slice_gibbs
+        for i in range(n_chains):
+            samples[i], _ = func(n_samples, chain=i, **sample_kws)
 
+        az_dict = to_arviz_dict(samples,  vnames, burnin=burnin)
+        az_data = az.from_dict(az_dict)
+        summary = az.summary(az_data, hdi_prob=0.95)
+        return samples, az_data, summary
+           
             
-                
+        
+                    
+                        
 
 
 def to_arviz_dict(samples, var_dict, burnin=0):

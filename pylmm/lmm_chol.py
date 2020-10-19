@@ -17,7 +17,7 @@ from ..utilities.linalg_operations import (dummy, vech, invech, _check_np,
                                            khatri_rao, sparse_woodbury_inversion,
                                            _check_shape, woodbury_inversion)
 from ..utilities.special_mats import lmat, nmat
-from ..utilities.numerical_derivs import so_gc_cd
+from ..utilities.numerical_derivs import so_gc_cd, so_fc_cd
 from .families import (Binomial, ExponentialFamily, Gamma, Gaussian,  # analysis:ignore
                             InverseGaussian, Poisson, NegativeBinomial)
 
@@ -226,7 +226,7 @@ class LMEC:
             self.iden_mats[key] = np.eye(p)
             self.d2g_dchol[key] = get_d2_chol(self.dims[key])
         self.bounds = [(0, None) if x==1 else (None, None) for x in self.theta]
-        self.bounds_2 = [(1e-25, None) if x==1 else (None, None) for x in self.theta]
+        self.bounds_2 = [(1e-6, None) if x==1 else (None, None) for x in self.theta]
         
     def update_mme(self, Ginv, s):
         """
@@ -692,21 +692,19 @@ class LMEC:
     
     def _compute_effects(self, theta=None):
         G = self.update_gmat(theta, inverse=False)
-        Ginv = self.update_gmat(theta, inverse=True)
         R = self.R * theta[-1]
-        Rinv = self.R / theta[-1]
-        V = self.Zs.dot(G).dot(self.Zs.T)+R
-        Vinv = sparse_woodbury_inversion(self.Zs, Cinv=Ginv, Ainv=Rinv.tocsc())
-        XtVi = (Vinv.dot(self.X)).T
+        V = self.Zs.dot(G).dot(self.Zs.T) + R
+        chol_fac = cholesky(V)
+        XtVi = (chol_fac.solve_A(self.X)).T
         XtViX = XtVi.dot(self.X)
         XtViX_inv = np.linalg.inv(XtViX)
         beta = _check_shape(XtViX_inv.dot(XtVi.dot(self.y)))
         fixed_resids = _check_shape(self.y) - _check_shape(self.X.dot(beta))
+        #Should be G.dot(Z).T.dot(solve(fixed_resids))
+        Vinvr = chol_fac.solve_A(fixed_resids)
+        u = G.dot(self.Zs.T).dot(Vinvr)
         
-        Zt = self.Zs.T
-        u = G.dot(Zt.dot(Vinv)).dot(fixed_resids)
-        
-        return beta, XtViX_inv, u, G, R, Rinv, V, Vinv
+        return beta, XtViX_inv, u, G, R, V
     
     def _fit(self, use_grad=True, use_hess=False, opt_kws={}):
         
@@ -725,7 +723,9 @@ class LMEC:
                                              options=opt_kws, bounds=self.bounds,
                                              method='trust-constr')
         else:
-            default_opt_kws = dict(disp=0, gtol=1e-6)
+            default_opt_kws = dict(disp=True, gtol=1e-14, ftol=1e-14, 
+                                   finite_diff_rel_step='3-point', eps=1e-7,
+                                   iprint=99)
             for key, value in default_opt_kws.items():
                 if key not in opt_kws.keys():
                     opt_kws[key] = value
@@ -736,12 +736,12 @@ class LMEC:
         theta_chol = optimizer.x
         theta = inverse_transform_theta(theta_chol.copy(), self.dims, self.indices)
         
-        beta, XtWX_inv, u, G, R, Rinv, V, Vinv = self._compute_effects(theta)
+        beta, XtWX_inv, u, G, R,  V = self._compute_effects(theta)
         params = np.concatenate([beta, theta])
         self.theta, self.beta, self.u, self.params = theta, beta, u, params
         self.Hinv_beta = XtWX_inv
         self.se_beta = np.sqrt(np.diag(XtWX_inv))
-        self._G, self._R, self._Rinv, self._V, self._Vinv = G, R, Rinv, V, Vinv
+        self._G, self._R, self._V = G, R, V
         self.optimizer = optimizer
         self.theta_chol = theta_chol
         self.llconst = (self.X.shape[0] - self.X.shape[1])*np.log(2*np.pi)
@@ -749,11 +749,13 @@ class LMEC:
         self.ll = (self.llconst + self.lltheta)
         self.llf = self.ll / -2.0
         
-    def _post_fit(self, analytic_se=False):
+    def _post_fit(self, use_grad=True, analytic_se=False):
         if analytic_se:
             Htheta = self.hessian(self.theta)
-        else:
+        elif use_grad:
             Htheta = so_gc_cd(self.gradient, self.theta)
+        else:
+            Htheta = so_fc_cd(self.loglike, self.theta)
         self.Hinv_theta = np.linalg.pinv(Htheta/2.0)
         self.se_theta = np.sqrt(np.diag(self.Hinv_theta))
         self.se_params = np.concatenate([self.se_beta, self.se_theta])        
@@ -767,7 +769,7 @@ class LMEC:
     
     def fit(self, use_grad=True, use_hess=False, analytic_se=False, opt_kws={}):
         self._fit(use_grad, use_hess, opt_kws)
-        self._post_fit()
+        self._post_fit(use_grad, analytic_se)
         param_names = list(self.fe_vars)
         for level in self.levels:
             for i, j in list(zip(*np.triu_indices(self.dims[level]['n_vars']))):
